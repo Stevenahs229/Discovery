@@ -26,7 +26,16 @@ export function Login({ onBack, onSuccess }: LoginProps) {
 
       if (error || !data.session) {
         console.error("Login error:", error);
-        toast.error("Email ou mot de passe incorrect");
+        
+        // Message d'erreur plus détaillé
+        if (error?.message?.includes("Invalid login credentials")) {
+          toast.error("Email ou mot de passe incorrect. Avez-vous créé un compte ?");
+        } else if (error?.message?.includes("Email not confirmed")) {
+          toast.error("Votre email n'est pas confirmé. Vérifiez vos emails.");
+        } else {
+          toast.error(error?.message || "Erreur lors de la connexion");
+        }
+        
         setIsSubmitting(false);
         return;
       }
@@ -35,7 +44,7 @@ export function Login({ onBack, onSuccess }: LoginProps) {
       onSuccess(data.session.access_token);
     } catch (error) {
       console.error("Login error:", error);
-      toast.error("Erreur lors de la connexion");
+      toast.error("Erreur lors de la connexion. Vérifiez vos identifiants.");
       setIsSubmitting(false);
     }
   };

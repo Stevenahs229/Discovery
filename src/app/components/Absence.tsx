@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/app/components/ui/card";
 import { Button } from "@/app/components/ui/button";
 import { Label } from "@/app/components/ui/label";
@@ -8,7 +8,7 @@ import { Calendar } from "@/app/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/app/components/ui/popover";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/app/components/ui/tabs";
 import { Alert, AlertDescription } from "@/app/components/ui/alert";
-import { ArrowLeft, CalendarIcon, Send, UserX, Shield, CheckCircle } from "lucide-react";
+import { ArrowLeft, CalendarIcon, Send, UserX, Shield, CheckCircle, Users } from "lucide-react";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
 import { toast } from "sonner";
@@ -21,6 +21,14 @@ interface AbsenceProps {
   binomeName?: string; // Nom du binôme
 }
 
+interface Agent {
+  id: string;
+  nom: string;
+  prenom: string;
+  email: string;
+  binome: string;
+}
+
 export function Absence({ onBack, onSubmit, accessToken, binomeName = "votre binôme" }: AbsenceProps) {
   const [activeTab, setActiveTab] = useState<"moi" | "binome">("moi");
   const [motif, setMotif] = useState("");
@@ -28,11 +36,34 @@ export function Absence({ onBack, onSubmit, accessToken, binomeName = "votre bin
   const [dateFin, setDateFin] = useState<Date>();
   const [commentaire, setCommentaire] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  
+  // Réaffectation de binôme
+  const [nouveauBinomeId, setNouveauBinomeId] = useState<string>("");
+  const [availableAgents, setAvailableAgents] = useState<Agent[]>([]);
+  const [showReassignment, setShowReassignment] = useState(false);
 
   // Pour déclaration absence du binôme
   const [binomeMotif, setBinomeMotif] = useState("");
   const [binomeCommentaire, setBinomeCommentaire] = useState("");
   const [confirmBinomeAbsence, setConfirmBinomeAbsence] = useState(false);
+
+  // Charger les agents disponibles
+  useEffect(() => {
+    const loadAvailableAgents = async () => {
+      if (accessToken && showReassignment) {
+        try {
+          const result = await api.getAvailableAgents(accessToken);
+          if (result.agents) {
+            setAvailableAgents(result.agents);
+          }
+        } catch (error) {
+          console.error("Error loading available agents:", error);
+        }
+      }
+    };
+
+    loadAvailableAgents();
+  }, [accessToken, showReassignment]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -50,10 +81,11 @@ export function Absence({ onBack, onSubmit, accessToken, binomeName = "votre bin
           dateDebut: dateDebut.toISOString(),
           dateFin: dateFin.toISOString(),
           commentaire,
+          nouveauBinomeId: showReassignment ? nouveauBinomeId : undefined,
         });
 
         if (result.success) {
-          toast.success("Déclaration d'absence envoyée avec succès!");
+          toast.success(result.message || "Déclaration d'absence envoyée avec succès!");
           setTimeout(() => onSubmit(), 1000);
         } else {
           toast.error(result.error || "Erreur lors de l'enregistrement");
@@ -239,6 +271,42 @@ export function Absence({ onBack, onSubmit, accessToken, binomeName = "votre bin
                     rows={4}
                   />
                 </div>
+
+                <div className="space-y-3 p-4 bg-muted rounded-lg border">
+                  <div className="flex items-start gap-3">
+                    <input
+                      type="checkbox"
+                      id="reassign-binome"
+                      checked={showReassignment}
+                      onChange={(e) => setShowReassignment(e.target.checked)}
+                      className="mt-1"
+                    />
+                    <Label htmlFor="reassign-binome" className="cursor-pointer">
+                      <span className="font-semibold text-primary">Réaffecter mon binôme</span><br/>
+                      <span className="text-sm text-muted-foreground">
+                        Si vous souhaitez réaffecter votre binôme à un autre agent, cochez cette case.
+                      </span>
+                    </Label>
+                  </div>
+                </div>
+
+                {showReassignment && (
+                  <div className="space-y-2">
+                    <Label htmlFor="nouveau-binome">Nouveau binôme *</Label>
+                    <Select value={nouveauBinomeId} onValueChange={setNouveauBinomeId}>
+                      <SelectTrigger id="nouveau-binome">
+                        <SelectValue placeholder="Sélectionnez un agent" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {availableAgents.map(agent => (
+                          <SelectItem key={agent.id} value={agent.id}>
+                            {agent.prenom} {agent.nom} ({agent.email})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
 
                 <Alert>
                   <Shield className="h-4 w-4 text-secondary" />

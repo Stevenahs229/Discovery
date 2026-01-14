@@ -69,6 +69,7 @@ app.post('/make-server-643544a8/signup', async (c) => {
     // Store additional user data in KV store
     const userId = authData.user.id;
     await kv.set(`user:${userId}`, {
+      userId,  // Ajouter userId pour faciliter la récupération
       nom,
       prenom,
       email,
@@ -197,7 +198,7 @@ app.post('/make-server-643544a8/absence', async (c) => {
     }
 
     const body = await c.req.json();
-    const { motif, dateDebut, dateFin, commentaire } = body;
+    const { motif, dateDebut, dateFin, commentaire, nouveauBinomeId } = body;
 
     const absenceId = `absence:${user.id}:${Date.now()}`;
     const absenceData = {
@@ -206,10 +207,31 @@ app.post('/make-server-643544a8/absence', async (c) => {
       dateDebut,
       dateFin,
       commentaire,
+      nouveauBinomeId: nouveauBinomeId || null,
       createdAt: new Date().toISOString(),
     };
 
     await kv.set(absenceId, absenceData);
+    
+    // Si un nouveau binôme est assigné, mettre à jour l'ancien binôme
+    if (nouveauBinomeId) {
+      const userData = await kv.get(`user:${user.id}`);
+      const ancienBinome = userData?.binome;
+      
+      if (ancienBinome) {
+        // Enregistrer la réaffectation temporaire
+        await kv.set(`binome:reassignment:${ancienBinome}:${Date.now()}`, {
+          ancienPartenaire: user.id,
+          nouveauPartenaire: nouveauBinomeId,
+          dateDebut,
+          dateFin,
+          raison: `Absence de ${userData?.nom} ${userData?.prenom}`,
+          createdAt: new Date().toISOString(),
+        });
+        
+        console.log(`Réaffectation de binôme: ${ancienBinome} → ${nouveauBinomeId}`);
+      }
+    }
     
     // Update today's status if absence starts today
     const today = new Date().toISOString().split('T')[0];
@@ -225,12 +247,83 @@ app.post('/make-server-643544a8/absence', async (c) => {
 
     return c.json({ 
       success: true,
-      message: 'Absence déclarée avec succès',
+      message: nouveauBinomeId 
+        ? 'Absence déclarée avec réaffectation de binôme' 
+        : 'Absence déclarée avec succès',
       data: absenceData,
     });
   } catch (error) {
     console.log(`Declare absence error: ${error}`);
     return c.json({ error: 'Erreur lors de la déclaration d\'absence' }, 500);
+  }
+});
+
+// Get available agents for binome reassignment
+app.get('/make-server-643544a8/agents/available', async (c) => {
+  try {
+    const authHeader = c.req.header('Authorization');
+    const { user, error } = await getAuthenticatedUser(authHeader);
+    
+    if (!user?.id || error) {
+      console.log(`Get available agents auth error: ${error?.message}`);
+      return c.json({ error: 'Non autorisé' }, 401);
+    }
+
+    // Récupérer tous les utilisateurs
+    const allUsers = await kv.getByPrefix('user:');
+    
+    // Filtrer pour ne garder que les agents disponibles (pas l'utilisateur actuel)
+    const availableAgents = allUsers
+      .filter(agent => agent.userId !== user.id)
+      .map(agent => ({
+        id: agent.userId || '',
+        nom: agent.nom || '',
+        prenom: agent.prenom || '',
+        email: agent.email || '',
+        binome: agent.binome || '',
+      }));
+
+    return c.json({
+      agents: availableAgents,
+      total: availableAgents.length,
+    });
+  } catch (error) {
+    console.log(`Get available agents error: ${error}`);
+    return c.json({ error: 'Erreur lors de la récupération des agents' }, 500);
+  }
+});
+
+// Get binome reassignments
+app.get('/make-server-643544a8/binome/reassignments', async (c) => {
+  try {
+    const authHeader = c.req.header('Authorization');
+    const { user, error } = await getAuthenticatedUser(authHeader);
+    
+    if (!user?.id || error) {
+      console.log(`Get binome reassignments auth error: ${error?.message}`);
+      return c.json({ error: 'Non autorisé' }, 401);
+    }
+
+    const userData = await kv.get(`user:${user.id}`);
+    const binome = userData?.binome;
+
+    if (!binome) {
+      return c.json({ reassignments: [] });
+    }
+
+    // Récupérer toutes les réaffectations pour ce binôme
+    const reassignments = await kv.getByPrefix(`binome:reassignment:${binome}:`);
+
+    return c.json({
+      reassignments: reassignments.sort((a, b) => {
+        const dateA = new Date(a.createdAt).getTime();
+        const dateB = new Date(b.createdAt).getTime();
+        return dateB - dateA;
+      }),
+    });
+  } catch (error) {
+    console.log(`Get binome reassignments error: ${error}`);
+    return c.json({ error: 'Erreur lors de la récupération des réaffectations' }, 500);
   }
 });
 
@@ -295,6 +388,35 @@ app.get('/make-server-643544a8/binome/status', async (c) => {
   } catch (error) {
     console.log(`Get binome status error: ${error}`);
     return c.json({ error: 'Erreur lors de la récupération du statut du binôme' }, 500);
+  }
+});
+
+// Liste TOUS les utilisateurs (pour sélection de binôme lors de l'inscription)
+// Route publique (pas d'auth requise) pour permettre la sélection de binôme
+app.get('/make-server-643544a8/users/all', async (c) => {
+  try {
+    console.log('Getting all users for binome selection');
+    
+    // Récupérer tous les utilisateurs
+    const allUsers = await kv.getByPrefix('user:');
+    
+    console.log(`Found ${allUsers.length} users in KV store`);
+    
+    // Formater les données pour le frontend
+    const users = allUsers.map(user => ({
+      id: user.userId || '',
+      nom: user.nom || '',
+      prenom: user.prenom || '',
+      fullName: `${user.prenom || ''} ${user.nom || ''}`.trim(),
+    }));
+
+    return c.json({
+      users,
+      total: users.length,
+    });
+  } catch (error) {
+    console.log(`Get all users error: ${error}`);
+    return c.json({ error: 'Erreur lors de la récupération des utilisateurs' }, 500);
   }
 });
 

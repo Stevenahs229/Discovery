@@ -31,7 +31,9 @@ const mapOptions = {
 };
 
 export function GoogleMapsView({ sites }: GoogleMapsViewProps) {
-  const apiKey = import.meta.env.GOOGLE_MAPS_API_KEY || "";
+  // Essayer de récupérer la clé API depuis les variables d'environnement
+  const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || 
+                 import.meta.env.GOOGLE_MAPS_API_KEY || "";
 
   // Si pas de clé API, afficher une carte simulée
   if (!apiKey) {
@@ -46,6 +48,9 @@ export function GoogleMapsView({ sites }: GoogleMapsViewProps) {
             </p>
             <p className="text-xs text-destructive mt-2">
               Clé API Google Maps non configurée
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">
+              Ajoutez VITE_GOOGLE_MAPS_API_KEY dans votre fichier .env
             </p>
           </div>
         </div>

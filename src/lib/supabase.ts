@@ -85,6 +85,7 @@ export const api = {
     dateDebut: string;
     dateFin: string;
     commentaire: string;
+    nouveauBinomeId?: string;
   }) {
     const response = await fetch(`${serverUrl}/absence`, {
       method: 'POST',
@@ -108,6 +109,24 @@ export const api = {
 
   async getBinomeStatus(accessToken: string) {
     const response = await fetch(`${serverUrl}/binome/status`, {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+      },
+    });
+    return response.json();
+  },
+
+  async getAvailableAgents(accessToken: string) {
+    const response = await fetch(`${serverUrl}/agents/available`, {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+      },
+    });
+    return response.json();
+  },
+
+  async getBinomeReassignments(accessToken: string) {
+    const response = await fetch(`${serverUrl}/binome/reassignments`, {
       headers: {
         'Authorization': `Bearer ${accessToken}`,
       },
