@@ -51,7 +51,12 @@ export const api = {
         'Authorization': `Bearer ${accessToken}`,
       },
     });
-    return response.json();
+    const data = await response.json();
+    console.log('API getProfile response:', data);
+    if (!response.ok) {
+      console.error('Profile fetch error:', response.status, data);
+    }
+    return data;
   },
 
   async declarePresence(accessToken: string, validationType: string) {

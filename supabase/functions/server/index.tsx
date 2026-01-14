@@ -9,10 +9,42 @@ const app = new Hono();
 app.use('*', cors());
 app.use('*', logger(console.log));
 
-const supabase = createClient(
-  Deno.env.get('SUPABASE_URL') ?? '',
-  Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
-);
+const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
+const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
+const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
+
+// Client with Service Role Key for admin operations
+const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
+
+// Client with Anon Key for verifying user tokens
+const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+// Helper function to get authenticated user from request
+async function getAuthenticatedUser(authHeader: string | undefined) {
+  if (!authHeader) {
+    console.log('Auth error: Missing authorization header');
+    return { user: null, error: 'Missing authorization header' };
+  }
+
+  const token = authHeader.split(' ')[1];
+  if (!token) {
+    console.log('Auth error: Invalid authorization header format');
+    return { user: null, error: 'Invalid authorization header' };
+  }
+
+  console.log('Attempting to verify token, length:', token.length);
+  
+  // Verify the JWT token
+  const { data: { user }, error } = await supabase.auth.getUser(token);
+  
+  if (error) {
+    console.log('JWT verification error:', error.message, error);
+  } else {
+    console.log('JWT verified successfully, user ID:', user?.id);
+  }
+  
+  return { user, error };
+}
 
 // Sign up route
 app.post('/make-server-643544a8/signup', async (c) => {
@@ -21,7 +53,7 @@ app.post('/make-server-643544a8/signup', async (c) => {
     const { email, password, nom, prenom, telephone, binome } = body;
 
     // Create user with Supabase Auth
-    const { data: authData, error: authError } = await supabase.auth.admin.createUser({
+    const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
       email,
       password,
       user_metadata: { nom, prenom },
@@ -59,25 +91,30 @@ app.post('/make-server-643544a8/signup', async (c) => {
 // Get user profile
 app.get('/make-server-643544a8/profile', async (c) => {
   try {
-    const accessToken = c.req.header('Authorization')?.split(' ')[1];
-    const { data: { user }, error: authError } = await supabase.auth.getUser(accessToken);
+    const authHeader = c.req.header('Authorization');
+    const { user, error } = await getAuthenticatedUser(authHeader);
     
-    if (!user?.id || authError) {
-      console.log(`Profile auth error: ${authError?.message}`);
+    if (!user?.id || error) {
+      console.log(`Profile auth error: ${error?.message}`);
       return c.json({ error: 'Non autorisé' }, 401);
     }
 
+    console.log('User authenticated, ID:', user.id);
     const userData = await kv.get(`user:${user.id}`);
+    console.log('User data from KV:', userData);
     
     if (!userData) {
+      console.log('User data not found in KV store for user:', user.id);
       return c.json({ error: 'Profil introuvable' }, 404);
     }
 
-    return c.json({
+    const response = {
       id: user.id,
       email: user.email,
       ...userData,
-    });
+    };
+    console.log('Sending profile response:', response);
+    return c.json(response);
   } catch (error) {
     console.log(`Get profile error: ${error}`);
     return c.json({ error: 'Erreur lors de la récupération du profil' }, 500);
@@ -87,11 +124,11 @@ app.get('/make-server-643544a8/profile', async (c) => {
 // Declare presence
 app.post('/make-server-643544a8/presence', async (c) => {
   try {
-    const accessToken = c.req.header('Authorization')?.split(' ')[1];
-    const { data: { user }, error: authError } = await supabase.auth.getUser(accessToken);
+    const authHeader = c.req.header('Authorization');
+    const { user, error } = await getAuthenticatedUser(authHeader);
     
-    if (!user?.id || authError) {
-      console.log(`Presence declaration auth error: ${authError?.message}`);
+    if (!user?.id || error) {
+      console.log(`Presence declaration auth error: ${error?.message}`);
       return c.json({ error: 'Non autorisé' }, 401);
     }
 
@@ -128,11 +165,11 @@ app.post('/make-server-643544a8/presence', async (c) => {
 // Get today's status
 app.get('/make-server-643544a8/status/today', async (c) => {
   try {
-    const accessToken = c.req.header('Authorization')?.split(' ')[1];
-    const { data: { user }, error: authError } = await supabase.auth.getUser(accessToken);
+    const authHeader = c.req.header('Authorization');
+    const { user, error } = await getAuthenticatedUser(authHeader);
     
-    if (!user?.id || authError) {
-      console.log(`Get today status auth error: ${authError?.message}`);
+    if (!user?.id || error) {
+      console.log(`Get today status auth error: ${error?.message}`);
       return c.json({ error: 'Non autorisé' }, 401);
     }
 
@@ -151,11 +188,11 @@ app.get('/make-server-643544a8/status/today', async (c) => {
 // Declare absence
 app.post('/make-server-643544a8/absence', async (c) => {
   try {
-    const accessToken = c.req.header('Authorization')?.split(' ')[1];
-    const { data: { user }, error: authError } = await supabase.auth.getUser(accessToken);
+    const authHeader = c.req.header('Authorization');
+    const { user, error } = await getAuthenticatedUser(authHeader);
     
-    if (!user?.id || authError) {
-      console.log(`Absence declaration auth error: ${authError?.message}`);
+    if (!user?.id || error) {
+      console.log(`Absence declaration auth error: ${error?.message}`);
       return c.json({ error: 'Non autorisé' }, 401);
     }
 
@@ -200,11 +237,11 @@ app.post('/make-server-643544a8/absence', async (c) => {
 // Get presence history
 app.get('/make-server-643544a8/history', async (c) => {
   try {
-    const accessToken = c.req.header('Authorization')?.split(' ')[1];
-    const { data: { user }, error: authError } = await supabase.auth.getUser(accessToken);
+    const authHeader = c.req.header('Authorization');
+    const { user, error } = await getAuthenticatedUser(authHeader);
     
-    if (!user?.id || authError) {
-      console.log(`Get history auth error: ${authError?.message}`);
+    if (!user?.id || error) {
+      console.log(`Get history auth error: ${error?.message}`);
       return c.json({ error: 'Non autorisé' }, 401);
     }
 
@@ -234,11 +271,11 @@ app.get('/make-server-643544a8/history', async (c) => {
 // Get binome status
 app.get('/make-server-643544a8/binome/status', async (c) => {
   try {
-    const accessToken = c.req.header('Authorization')?.split(' ')[1];
-    const { data: { user }, error: authError } = await supabase.auth.getUser(accessToken);
+    const authHeader = c.req.header('Authorization');
+    const { user, error } = await getAuthenticatedUser(authHeader);
     
-    if (!user?.id || authError) {
-      console.log(`Get binome status auth error: ${authError?.message}`);
+    if (!user?.id || error) {
+      console.log(`Get binome status auth error: ${error?.message}`);
       return c.json({ error: 'Non autorisé' }, 401);
     }
 

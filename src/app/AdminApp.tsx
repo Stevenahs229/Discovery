@@ -43,7 +43,11 @@ interface Anomaly {
   status: 'pending' | 'reviewed' | 'resolved';
 }
 
-export default function AdminApp() {
+interface AdminAppProps {
+  onSwitchToUserMode: () => void;
+}
+
+export default function AdminApp({ onSwitchToUserMode }: AdminAppProps) {
   const [currentScreen, setCurrentScreen] = useState<Screen>("dashboard");
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   
@@ -243,7 +247,7 @@ export default function AdminApp() {
       </nav>
 
       <div className="absolute bottom-0 left-0 right-0 p-4 border-t space-y-2">
-        <Button variant="outline" className="w-full justify-start">
+        <Button variant="outline" className="w-full justify-start" onClick={onSwitchToUserMode}>
           <User className="w-4 h-4 mr-2" />
           Mode Utilisateur
         </Button>

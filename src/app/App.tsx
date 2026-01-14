@@ -8,6 +8,10 @@ import { Absence } from "@/app/components/Absence";
 import { Toaster } from "@/app/components/ui/sonner";
 import { Button } from "@/app/components/ui/button";
 import { ThemeProvider } from "@/app/components/ThemeProvider";
+import { PWAInstallPrompt } from "@/app/components/PWAInstallPrompt";
+import { PWAWelcomeModal } from "@/app/components/PWAWelcomeModal";
+import { OfflineBanner } from "@/app/components/PWAHelpers";
+import { PWADebugPanel } from "@/app/components/PWADebugPanel";
 import AdminApp from "@/app/AdminApp";
 import { api } from "@/lib/supabase";
 import { Shield } from "lucide-react";
@@ -42,9 +46,29 @@ export default function App() {
 
   const loadUserProfile = async (token: string) => {
     try {
+      console.log('Loading user profile with token:', token ? 'token exists' : 'no token');
+      
+      // First, try to get user metadata from Supabase Auth directly
+      const { data: sessionData } = await api.getSession();
+      if (sessionData?.session?.user?.user_metadata) {
+        const { nom, prenom } = sessionData.session.user.user_metadata;
+        if (nom && prenom) {
+          const fullName = `${prenom} ${nom}`;
+          console.log('Setting userName from session metadata:', fullName);
+          setUserName(fullName);
+          return;
+        }
+      }
+      
+      // Fallback to API call
       const profile = await api.getProfile(token);
+      console.log('Profile received:', profile);
       if (profile.nom && profile.prenom) {
-        setUserName(`${profile.prenom} ${profile.nom}`);
+        const fullName = `${profile.prenom} ${profile.nom}`;
+        console.log('Setting userName to:', fullName);
+        setUserName(fullName);
+      } else {
+        console.log('Profile missing nom or prenom:', profile);
       }
     } catch (error) {
       console.error("Error loading profile:", error);
@@ -153,21 +177,10 @@ export default function App() {
   if (appMode === "admin") {
     return (
       <ThemeProvider>
-        <div className="relative">
-          <div className="absolute top-4 right-4 z-50">
-            <Button
-              variant="outline"
-              onClick={() => {
-                setAppMode("user");
-                setCurrentScreen("onboarding");
-              }}
-              className="gap-2"
-            >
-              Mode Utilisateur
-            </Button>
-          </div>
-          <AdminApp />
-        </div>
+        <AdminApp onSwitchToUserMode={() => {
+          setAppMode("user");
+          setCurrentScreen("onboarding");
+        }} />
       </ThemeProvider>
     );
   }
@@ -216,6 +229,10 @@ export default function App() {
       )}
 
       <Toaster />
+      <PWAInstallPrompt />
+      <PWAWelcomeModal />
+      <OfflineBanner />
+      <PWADebugPanel />
     </ThemeProvider>
   );
 }

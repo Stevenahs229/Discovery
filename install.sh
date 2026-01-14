@@ -3,8 +3,6 @@
 echo "🚀 Installation de TwoInOne - Application de Présence Sécurisée"
 echo "=============================================================="
 echo ""
-echo "⚠️  IMPORTANT: Cette installation corrige l'erreur jsxDEV"
-echo ""
 
 # Couleurs pour les messages
 GREEN='\033[0;32m'
@@ -26,7 +24,7 @@ print_error() {
 }
 
 # Étape 1 : Nettoyage
-echo "📦 Étape 1/5 : Nettoyage des anciennes installations..."
+echo "📦 Étape 1/4 : Nettoyage des anciennes installations..."
 if [ -d "node_modules" ]; then
     rm -rf node_modules
     print_success "node_modules supprimé"
@@ -55,7 +53,7 @@ fi
 echo ""
 
 # Étape 2 : Vérification de Node.js
-echo "🔍 Étape 2/5 : Vérification de l'environnement..."
+echo "🔍 Étape 2/4 : Vérification de l'environnement..."
 if ! command -v node &> /dev/null; then
     print_error "Node.js n'est pas installé. Veuillez l'installer depuis https://nodejs.org"
     exit 1
@@ -75,7 +73,7 @@ print_success "npm $NPM_VERSION détecté"
 echo ""
 
 # Étape 3 : Installation des dépendances
-echo "📥 Étape 3/5 : Installation des dépendances..."
+echo "📥 Étape 3/4 : Installation des dépendances..."
 echo "Cela peut prendre quelques minutes..."
 echo ""
 
@@ -94,7 +92,7 @@ fi
 echo ""
 
 # Étape 4 : Vérification finale
-echo "✅ Étape 4/5 : Vérification de l'installation..."
+echo "✅ Étape 4/4 : Vérification de l'installation..."
 
 # Vérifier que les fichiers essentiels existent
 if [ ! -f "vite.config.ts" ]; then
