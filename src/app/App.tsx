@@ -12,8 +12,10 @@ import { PWAInstallPrompt } from "@/app/components/PWAInstallPrompt";
 import { PWAWelcomeModal } from "@/app/components/PWAWelcomeModal";
 import { OfflineBanner } from "@/app/components/PWAHelpers";
 import { PWADebugPanel } from "@/app/components/PWADebugPanel";
+import { GeolocationPrompt } from "@/app/components/GeolocationPrompt";
 import AdminApp from "@/app/AdminApp";
 import { api } from "@/lib/supabase";
+import OfflineStorageService from "@/services/offlineStorage";
 import { Shield } from "lucide-react";
 
 type Screen = "onboarding" | "inscription" | "login" | "accueil" | "validation" | "absence";
@@ -26,6 +28,7 @@ export default function App() {
   const [userName, setUserName] = useState("Utilisateur");
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [showGeolocationPrompt, setShowGeolocationPrompt] = useState(false);
 
   // Check for existing session on mount
   useEffect(() => {
@@ -40,6 +43,9 @@ export default function App() {
       await loadUserProfile(data.session.access_token);
       await loadTodayStatus(data.session.access_token);
       setCurrentScreen("accueil");
+      
+      // Demander la géolocalisation après connexion
+      setShowGeolocationPrompt(true);
     }
     setLoading(false);
   };
@@ -56,6 +62,15 @@ export default function App() {
           const fullName = `${prenom} ${nom}`;
           console.log('Setting userName from session metadata:', fullName);
           setUserName(fullName);
+          
+          // Sauvegarder dans le storage offline
+          OfflineStorageService.saveUserData({
+            userId: sessionData.session.user.id,
+            nom,
+            prenom,
+            email: sessionData.session.user.email || '',
+          });
+          
           return;
         }
       }
@@ -67,6 +82,15 @@ export default function App() {
         const fullName = `${profile.prenom} ${profile.nom}`;
         console.log('Setting userName to:', fullName);
         setUserName(fullName);
+        
+        // Sauvegarder dans le storage offline
+        OfflineStorageService.saveUserData({
+          userId: profile.id || profile.userId || '',
+          nom: profile.nom,
+          prenom: profile.prenom,
+          email: profile.email || '',
+          role: profile.role,
+        });
       } else {
         console.log('Profile missing nom or prenom:', profile);
       }
@@ -233,6 +257,7 @@ export default function App() {
       <PWAWelcomeModal />
       <OfflineBanner />
       <PWADebugPanel />
+      <GeolocationPrompt />
     </ThemeProvider>
   );
 }
