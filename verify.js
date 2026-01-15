@@ -86,8 +86,8 @@ console.log('\n⚙️  Vérification de la configuration:');
 // Vérifier vite.config.ts
 try {
   const viteConfig = fs.readFileSync(path.join(__dirname, 'vite.config.ts'), 'utf8');
-  const hasReactPlugin = viteConfig.includes('react()');
-  const hasJsxAlias = viteConfig.includes('jsx-runtime');
+  const hasReactPlugin = /react\s*\(/.test(viteConfig);
+  const hasJsxAlias = viteConfig.includes('jsxRuntime') || viteConfig.includes('jsx-runtime');
   
   console.log(`  ${hasReactPlugin ? checks['✓'] : checks['✗']} Plugin React configuré`);
   console.log(`  ${hasJsxAlias ? checks['✓'] : checks['✗']} Alias JSX runtime configuré`);
