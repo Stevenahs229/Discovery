@@ -2,18 +2,41 @@ version: '3.8'
 
 services:
   twoinone-ml:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
     container_name: twoinone-ml-api
     ports:
-      - "8000:8000"
+      - "${API_PORT:-8000}:8000"
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - SUPABASE_URL=${SUPABASE_URL}
       - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      - JWT_ALGORITHM=${JWT_ALGORITHM:-HS256}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS}
+      - ENVIRONMENT=${ENVIRONMENT:-production}
+      - FACE_RECOGNITION_THRESHOLD=${FACE_RECOGNITION_THRESHOLD:-0.6}
+      - MAX_ENCODINGS_PER_USER=${MAX_ENCODINGS_PER_USER:-5}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
     volumes:
       - ./models:/app/models
       - ./logs:/app/logs
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/ml/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
     networks:
       - twoinone-network
 

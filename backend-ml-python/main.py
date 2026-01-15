@@ -4,7 +4,7 @@ Microservice pour la reconnaissance faciale et l'IA
 FastAPI + TensorFlow + OpenCV
 """
 
-from fastapi import FastAPI, File, UploadFile, HTTPException, Header
+from fastapi import FastAPI, File, UploadFile, HTTPException, Header, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import face_recognition
@@ -20,9 +20,44 @@ from psycopg2.extras import RealDictCursor
 import base64
 import logging
 
+# Imports des modules personnalisés
+from config import get_app_settings, validate_environment
+from auth import get_current_user, get_current_user_optional, TokenData
+from database import (
+    init_db_pool,
+    close_db_pool,
+    create_tables,
+    save_face_encoding,
+    get_face_encodings,
+    get_all_face_encodings,
+    delete_face_encodings,
+    get_enrolled_users,
+    get_user_encoding_count
+)
+
 # Configuration du logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Charger et valider la configuration
+try:
+    settings = validate_environment()
+except Exception as e:
+    logger.error(f"❌ Erreur de configuration: {e}")
+    logger.info("💡 Créez un fichier .env basé sur .env.example")
+    # En mode développement, on peut continuer sans .env
+    if os.getenv("ENVIRONMENT") != "production":
+        logger.warning("⚠️  Mode développement: utilisation de valeurs par défaut")
+        from config import Settings
+        settings = Settings(
+            DATABASE_URL=os.getenv("DATABASE_URL", "postgresql://localhost/twoinone"),
+            SUPABASE_URL=os.getenv("SUPABASE_URL", "http://localhost"),
+            SUPABASE_ANON_KEY=os.getenv("SUPABASE_ANON_KEY", "dev-key"),
+            JWT_SECRET_KEY=os.getenv("JWT_SECRET_KEY", "dev-secret-key-not-for-production"),
+            ALLOWED_ORIGINS=os.getenv("ALLOWED_ORIGINS", "http://localhost:3000,http://localhost:5173")
+        )
+    else:
+        raise
 
 app = FastAPI(
     title="TwoInOne ML API",
@@ -30,17 +65,14 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# CORS - Permettre les requêtes depuis le frontend
+# CORS - Origines restreintes depuis la configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # À restreindre en production
+    allow_origins=settings.get_allowed_origins_list(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Configuration de la base de données
-DATABASE_URL = os.getenv("DATABASE_URL", "")
 
 def get_db_connection():
     """Créer une connexion à PostgreSQL"""
@@ -67,9 +99,27 @@ class HealthResponse(BaseModel):
     service: str
     version: str
 
-# Stockage temporaire des encodages faciaux (à remplacer par DB en production)
-# Structure: {user_id: [encodages_faciaux]}
-FACE_ENCODINGS_STORAGE = {}
+# Événements de cycle de vie de l'application
+@app.on_event("startup")
+async def startup_event():
+    """Initialiser la base de données au démarrage"""
+    logger.info("🚀 Démarrage de l'application...")
+    try:
+        init_db_pool()
+        await create_tables()
+        logger.info("✅ Application prête")
+    except Exception as e:
+        logger.error(f"❌ Erreur au démarrage: {e}")
+        # Ne pas bloquer le démarrage en développement
+        if settings.ENVIRONMENT == "production":
+            raise
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Fermer les connexions au shutdown"""
+    logger.info("🛑 Arrêt de l'application...")
+    close_db_pool()
+    logger.info("✅ Connexions fermées")
 
 # Routes
 
@@ -85,29 +135,31 @@ async def root():
 @app.get("/ml/health")
 async def health_check():
     """Vérifier l'état du service ML"""
+    enrolled_users = await get_enrolled_users()
     return {
         "status": "healthy",
+        "environment": settings.ENVIRONMENT,
         "ml_libraries": {
             "face_recognition": "installed",
             "opencv": "installed",
             "numpy": "installed"
         },
-        "models_loaded": len(FACE_ENCODINGS_STORAGE)
+        "enrolled_users_count": len(enrolled_users),
+        "cors_origins": len(settings.get_allowed_origins_list())
     }
 
 @app.post("/ml/enroll-face")
 async def enroll_face(
     file: UploadFile = File(...),
-    user_id: str = Header(...),
-    authorization: str = Header(...)
+    current_user: TokenData = Depends(get_current_user)
 ):
     """
     Enregistrer le visage d'un utilisateur pour la reconnaissance faciale
     
     - file: Image du visage (JPEG, PNG)
-    - user_id: ID de l'utilisateur
-    - authorization: Token JWT
+    - current_user: Utilisateur authentifié (extrait du JWT)
     """
+    user_id = current_user.user_id
     try:
         logger.info(f"Enregistrement facial pour user_id: {user_id}")
         
@@ -152,22 +204,18 @@ async def enroll_face(
         
         face_encoding = face_encodings[0]
         
-        # Stocker l'encodage (en production, sauvegarder dans la DB)
-        if user_id not in FACE_ENCODINGS_STORAGE:
-            FACE_ENCODINGS_STORAGE[user_id] = []
+        # Sauvegarder l'encodage dans PostgreSQL
+        await save_face_encoding(user_id, face_encoding.tolist())
         
-        FACE_ENCODINGS_STORAGE[user_id].append(face_encoding.tolist())
-        
-        # Limiter à 5 encodages par utilisateur pour éviter la surcharge
-        if len(FACE_ENCODINGS_STORAGE[user_id]) > 5:
-            FACE_ENCODINGS_STORAGE[user_id] = FACE_ENCODINGS_STORAGE[user_id][-5:]
+        # Obtenir le nombre total d'encodages pour cet utilisateur
+        face_count = await get_user_encoding_count(user_id)
         
         logger.info(f"Visage enregistré avec succès pour user_id: {user_id}")
         
         return {
             "success": True,
             "message": "Visage enregistré avec succès",
-            "face_count": len(FACE_ENCODINGS_STORAGE[user_id])
+            "face_count": face_count
         }
         
     except HTTPException:
@@ -179,13 +227,13 @@ async def enroll_face(
 @app.post("/ml/verify-face", response_model=FaceVerificationResponse)
 async def verify_face(
     file: UploadFile = File(...),
-    authorization: str = Header(...)
+    current_user: Optional[TokenData] = Depends(get_current_user_optional)
 ):
     """
     Vérifier l'identité d'un utilisateur via reconnaissance faciale
     
     - file: Image du visage à vérifier
-    - authorization: Token JWT
+    - current_user: Utilisateur authentifié (optionnel)
     
     Retourne l'user_id si reconnu avec un niveau de confiance
     """
@@ -234,11 +282,14 @@ async def verify_face(
         
         unknown_encoding = unknown_encodings[0]
         
+        # Récupérer tous les encodages depuis PostgreSQL
+        all_encodings = await get_all_face_encodings()
+        
         # Comparer avec tous les visages enregistrés
         best_match_user_id = None
         best_match_distance = 1.0  # Distance maximale (pire match)
         
-        for user_id, stored_encodings in FACE_ENCODINGS_STORAGE.items():
+        for user_id, stored_encodings in all_encodings.items():
             for stored_encoding in stored_encodings:
                 # Calculer la distance faciale
                 face_distances = face_recognition.face_distance(
@@ -252,9 +303,8 @@ async def verify_face(
                     best_match_distance = distance
                     best_match_user_id = user_id
         
-        # Seuil de confiance (0.6 est une bonne valeur par défaut)
-        # Plus la distance est faible, meilleure est la correspondance
-        CONFIDENCE_THRESHOLD = 0.6
+        # Seuil de confiance depuis la configuration
+        CONFIDENCE_THRESHOLD = settings.FACE_RECOGNITION_THRESHOLD
         
         if best_match_distance < CONFIDENCE_THRESHOLD and best_match_user_id:
             confidence = 1.0 - best_match_distance  # Convertir en score de confiance
@@ -279,18 +329,31 @@ async def verify_face(
         raise HTTPException(status_code=500, detail=f"Erreur serveur: {str(e)}")
 
 @app.get("/ml/users-enrolled")
-async def get_enrolled_users():
+async def get_enrolled_users_endpoint(
+    current_user: TokenData = Depends(get_current_user)
+):
     """Obtenir la liste des utilisateurs avec reconnaissance faciale activée"""
+    users = await get_enrolled_users()
     return {
-        "enrolled_users": list(FACE_ENCODINGS_STORAGE.keys()),
-        "total_count": len(FACE_ENCODINGS_STORAGE)
+        "enrolled_users": users,
+        "total_count": len(users)
     }
 
 @app.delete("/ml/delete-face/{user_id}")
-async def delete_face_enrollment(user_id: str, authorization: str = Header(...)):
+async def delete_face_enrollment(
+    user_id: str,
+    current_user: TokenData = Depends(get_current_user)
+):
     """Supprimer l'enregistrement facial d'un utilisateur"""
-    if user_id in FACE_ENCODINGS_STORAGE:
-        del FACE_ENCODINGS_STORAGE[user_id]
+    # Vérifier que l'utilisateur supprime ses propres données ou est admin
+    if current_user.user_id != user_id and current_user.role != "admin":
+        raise HTTPException(
+            status_code=403,
+            detail="Vous ne pouvez supprimer que vos propres données"
+        )
+    
+    deleted = await delete_face_encodings(user_id)
+    if deleted:
         logger.info(f"Enregistrement facial supprimé pour user_id: {user_id}")
         return {"success": True, "message": "Enregistrement facial supprimé"}
     else:
