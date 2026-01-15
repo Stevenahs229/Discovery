@@ -1,7 +1,11 @@
 #!/usr/bin/env node
 
-const fs = require('fs');
-const path = require('path');
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 console.log('🔍 Vérification de l\'installation TwoInOne\n');
 
@@ -82,8 +86,8 @@ console.log('\n⚙️  Vérification de la configuration:');
 // Vérifier vite.config.ts
 try {
   const viteConfig = fs.readFileSync(path.join(__dirname, 'vite.config.ts'), 'utf8');
-  const hasReactPlugin = viteConfig.includes('react()');
-  const hasJsxAlias = viteConfig.includes('jsx-runtime');
+  const hasReactPlugin = /react\s*\(/.test(viteConfig);
+  const hasJsxAlias = viteConfig.includes('jsxRuntime') || viteConfig.includes('jsx-runtime');
   
   console.log(`  ${hasReactPlugin ? checks['✓'] : checks['✗']} Plugin React configuré`);
   console.log(`  ${hasJsxAlias ? checks['✓'] : checks['✗']} Alias JSX runtime configuré`);
